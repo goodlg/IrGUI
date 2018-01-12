@@ -1,5 +1,5 @@
-#define LOG_TAG "IrisGui"
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
+#define LOG_TAG "Iris-JNI"
 
 #include <jni.h>
 #include <string>
@@ -7,18 +7,18 @@
 #include <dlfcn.h>
 #include <assert.h>
 
+#define NELEM(x) ((int) (sizeof(x) / sizeof((x)[0])))
+
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-#ifndef TRUE
-#define TRUE 1
-#endif
-#ifndef FALSE
-#define FALSE 0
-#endif
-
 #define IRIS_LIB_PATH "/system/lib/libraw_interface.so"
+
+enum{
+    IRIS_MSG_RECEIVED_RAW_FRAME = 0x001,
+    IRIS_MSG_ALL_MSGS = 0xFFFF
+} ;
 
 #define UNUSED(x) (void)(x)
 
@@ -31,7 +31,7 @@ typedef int (*CAC_FUNC3)(int, int);
 typedef void (*PFN_FRAMEPOST_CB)(void *pFrameHeapBase, int frame_len);
 typedef int (*CAC_FUNC4)(PFN_FRAMEPOST_CB);
 
-void dataCallback(void *pFrameHeapBase, int frame_len);
+static void dataCallback(void *dataPtr, int size);
 
 /* API */
 CAC_FUNC Open = NULL;
@@ -43,23 +43,44 @@ CAC_FUNC3 WriteRegister = NULL;
 CAC_FUNC3 SetLed = NULL;
 CAC_FUNC4 RegisterFrameCallback = NULL;
 
-void dataCallback(void *pFrameHeapBase, int frame_len) {
-    UNUSED(pFrameHeapBase);
-    LOGI("[IR_JNI]: dataCallback, frame_len=%d", frame_len);
-}
+JNIEnv *gEnv = NULL;
+jclass gIrisClass = NULL;
+jobject gIrisJObjectWeak = NULL;
+jmethodID gPostEvent = NULL;
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_ApiInit(
-        JNIEnv *env,
-        jobject /* this */) {
+static void dataCallback(void *dataPtr, int size) {
+    jbyteArray obj = NULL;
+
+    uint8_t *dataBase = (uint8_t*)dataPtr;
+    LOGI("[IR_JNI]: dataCallback, size=%d", size);
+    if (dataBase != NULL) {
+        const jbyte* data = reinterpret_cast<const jbyte*>(dataBase + size);
+        obj = gEnv->NewByteArray(size >= 0 ? size : 0 );
+        if (obj == NULL) {
+            LOGE("[IR_JNI] Couldn't allocate byte array for raw data");
+            gEnv->ExceptionClear();
+        } else {
+            gEnv->SetByteArrayRegion(obj, 0, size, data);
+        }
+    }
+
+    // post image data to Java
+    gEnv->CallStaticVoidMethod(gIrisClass, gPostEvent,
+            gIrisJObjectWeak, IRIS_MSG_RECEIVED_RAW_FRAME, 0, 0, obj);
+    if (obj) {
+        gEnv->DeleteLocalRef(obj);
+    }
+
+    LOGI("[IR_JNI]: dataCallback end");
+}
+static jint ApiInit(JNIEnv *, jobject) {
     char *error;
     LOGI("[IR_JNI]: ApiInit");
 
     s_handle = dlopen(IRIS_LIB_PATH, RTLD_NOW);
     if (NULL == s_handle) {
         LOGE("[IR_JNI]: Failed to get IRIS handle in %s()! (Reason=%s)\n", __FUNCTION__, dlerror());
-        return FALSE;
+        return JNI_FALSE;
     }
 
     //clear prev error
@@ -68,148 +89,162 @@ Java_org_ftd_gyn_IrisguiActicity_ApiInit(
     *(void **) (&Open) = dlsym(s_handle, "RawCam_Open");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_Open handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&Close) = dlsym(s_handle, "RawCam_Close");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_Close handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&StartStream) = dlsym(s_handle, "RawCam_StartStream");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_StartStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&StopStream) = dlsym(s_handle, "RawCam_StopStream");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_StopStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&ReadRegister) = dlsym(s_handle, "RawCam_ReadRegister");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_ReadRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&WriteRegister) = dlsym(s_handle, "RawCam_WriteRegister");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_WriteRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&SetLed) = dlsym(s_handle, "RawCam_SetLed");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_SetLed handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     *(void **) (&RegisterFrameCallback) = dlsym(s_handle, "RawCam_RegisterFrameCallback");
     if ((error = dlerror()) != NULL)  {
         LOGE("[IR_JNI]: Failed to get RawCam_RegisterFrameCallback handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return FALSE;
+        return JNI_FALSE;
     }
 
     LOGI("[IR_JNI]: INIT done");
-    return TRUE;
+    return JNI_TRUE;
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_ApiDeinit(
-        JNIEnv *env,
-        jobject /* this */) {
+static jint ApiDeinit(JNIEnv *, jobject) {
     if (s_handle != NULL) {
         dlclose(s_handle);
         LOGI("[IR_JNI]: ApiDeinit done");
     }
-    return 0;
+    return JNI_OK;
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamOpen(
-        JNIEnv *env,
-        jobject obj,
-        jint id) {
-    LOGI("[IR_JNI]: RawCamOpen (id %d)", id);
+static jint RawCam_Open(JNIEnv *env, jobject thiz, jobject weak_ir, jint camId) {
+    LOGI("[IR_JNI]: RawCamOpen (id %d)", camId);
+
+    jclass clazz = env->GetObjectClass(thiz);
+    if (clazz == NULL) {
+        // This should never happen
+        return JNI_FALSE;
+    }
+
+    gIrisJObjectWeak = env->NewGlobalRef(weak_ir);
+    gIrisClass = (jclass)env->NewGlobalRef(clazz);
+
     return Open();
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamClose(
-        JNIEnv *env,
-        jobject /* this */) {
-    LOGI("[IR_JNI]: RawCamClose");
+static jint RawCam_Close(JNIEnv *env, jobject) {
+    LOGI("[IR_JNI]: RawCam_Close");
+
+    if (gIrisJObjectWeak != NULL) {
+        env->DeleteGlobalRef(gIrisJObjectWeak);
+        gIrisJObjectWeak = NULL;
+    }
+    if (gIrisClass != NULL) {
+        env->DeleteGlobalRef(gIrisClass);
+        gIrisClass = NULL;
+    }
+
     return Close();
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamStartStream(
-        JNIEnv *env,
-        jobject /* this */) {
-    LOGI("[IR_JNI]: RawCamStartStream");
-    StartStream();
-    return 0;
+static jint RawCam_StartStream(JNIEnv *, jobject) {
+    LOGI("[IR_JNI]: RawCam_StartStream");
+    return StartStream();
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamStopStream(
-        JNIEnv *env,
-        jobject /* this */) {
-    LOGI("[IR_JNI]: RawCamStopStream");
-    StopStream();
-    return 0;
+static jint RawCam_StopStream(JNIEnv *, jobject) {
+    LOGI("[IR_JNI]: RawCam_StopStream");
+    return StopStream();
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamReadRegister(
-        JNIEnv *env,
-        jobject obj,/* this */
-        jint addr) {
-    int value = 0;
+static jint RawCam_ReadRegister(JNIEnv *, jobject, jint addr) {
+    jint value = 0;
     LOGI("[IR_JNI]: ReadRegister, addr=%d", addr);
     ReadRegister(addr, &value);
     return value;
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamWriteRegister(
-        JNIEnv *env,
-        jobject obj,/* this */
-        jint addr,
-        jint value) {
+static jint RawCam_WriteRegister(JNIEnv *, jobject, jint addr, jint value) {
     LOGI("[IR_JNI]: WriteRegister, addr=%d, value=%d", addr, value);
-    WriteRegister(addr, value);
-    return 0;
+    return WriteRegister(addr, value);
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamSetLed(
-        JNIEnv *env,
-        jobject obj,/* this */
-        jint led1,
-        jint led2) {
-    LOGI("[IR_JNI]: WriteRegister, led1=%d, led2=%d", led1, led2);
-    SetLed(led1, led2);
-    return 0;
+static jint RawCam_SetLed(JNIEnv *, jobject, jint led1, jint led2) {
+    LOGI("[IR_JNI]: RawCamSetLed, led1=%d, led2=%d", led1, led2);
+    return SetLed(led1, led2);
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_org_ftd_gyn_IrisguiActicity_RawCamRegisterFrameCallback(
-        JNIEnv *env,
-        jobject obj/* this */) {
+static jint RawCam_RegisterFrameCallback(JNIEnv *, jobject) {
     LOGI("[IR_JNI]: RawCam_RegisterFrameCallback...");
-    RegisterFrameCallback(dataCallback);
-    return 0;
+    return RegisterFrameCallback(dataCallback);
+}
+
+static const JNINativeMethod sMethods[] = {
+    {"ApiInit", "()I", (void*) ApiInit},
+    {"ApiDeinit", "()I", (void*) ApiDeinit},
+    {"RawCam_Open", "(Ljava/lang/Object;I)I", (void*) RawCam_Open},
+    {"RawCam_Close", "()I", (void*) RawCam_Close},
+    {"RawCam_StartStream", "()I", (void*) RawCam_StartStream},
+    {"RawCam_StopStream", "()I", (void*) RawCam_StopStream},
+    {"RawCam_ReadRegister", "(I)I", (void*) RawCam_ReadRegister},
+    {"RawCam_WriteRegister", "(II)I", (void*) RawCam_WriteRegister},
+    {"RawCam_SetLed", "(II)I", (void*) RawCam_SetLed},
+    {"RawCam_RegisterFrameCallback", "()I", (void*) RawCam_RegisterFrameCallback},
+};
+
+static int registerNativeMethods(JNIEnv* env, const char* className,
+        const JNINativeMethod* gMethods, int numMethods) {
+    jclass clazz = env->FindClass(className);
+    if (clazz == NULL) {
+        return JNI_FALSE;
+    }
+    gPostEvent = env->GetStaticMethodID(clazz, "postRawDataEvent",
+                                           "(Ljava/lang/Object;IIILjava/lang/Object;)V");
+    if (env->RegisterNatives(clazz, gMethods, numMethods) < 0) {
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+jint JNI_OnLoad(JavaVM* jvm, void*) {
+    JNIEnv *env = NULL;
+    if (jvm->GetEnv((void**) &env, JNI_VERSION_1_6)) {
+        return JNI_ERR;
+    }
+    gEnv = env;
+    if (registerNativeMethods(env, "org/ftd/gyn/IrisguiActicity",
+            sMethods, NELEM(sMethods)) == -1) {
+        return JNI_ERR;
+    }
+
+    return JNI_VERSION_1_6;
 }

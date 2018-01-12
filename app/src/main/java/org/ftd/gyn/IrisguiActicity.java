@@ -128,9 +128,10 @@ public class IrisguiActicity extends Activity
     private Method registerMethod = null;
     private Method dumpMethod = null;
 
-    private static final int IRIS_MSG_RECEIVED_RAW_FRAME    = 0x001;
-
     private EventHandler mEventHandler;
+    private DataCallback mDataCallback;
+
+    private static final int IRIS_MSG_RECEIVED_RAW_FRAME    = 0x001;
 
     // -----------------------------------------------------
     //flag
@@ -148,14 +149,14 @@ public class IrisguiActicity extends Activity
     public native int ApiInit();
     public native int ApiDeinit();
 
-    public native int RawCamOpen(int id);
-    public native int RawCamClose();
-    public native int RawCamStartStream();
-    public native int RawCamStopStream();
-    public native int RawCamReadRegister(int addr);
-    public native int RawCamWriteRegister(int addr, int value);
-    public native int RawCamSetLed(int led1, int led2);
-    public native int RawCamRegisterFrameCallback();
+    public native int RawCam_Open(Object iris_this, int id);
+    public native int RawCam_Close();
+    public native int RawCam_StartStream();
+    public native int RawCam_StopStream();
+    public native int RawCam_ReadRegister(int addr);
+    public native int RawCam_WriteRegister(int addr, int value);
+    public native int RawCam_SetLed(int led1, int led2);
+    public native int RawCam_RegisterFrameCallback();
 
     // ------------------------------------------------------
     public IrisguiActicity() {
@@ -183,9 +184,9 @@ public class IrisguiActicity extends Activity
 
         Looper looper;
         if ((looper = Looper.myLooper()) != null) {
-            mEventHandler = new EventHandler(looper);
+            mEventHandler = new EventHandler(this, looper);
         } else if ((looper = Looper.getMainLooper()) != null) {
-            mEventHandler = new EventHandler(looper);
+            mEventHandler = new EventHandler(this, looper);
         } else {
             mEventHandler = null;
         }
@@ -612,7 +613,8 @@ public class IrisguiActicity extends Activity
             if (USE_JAVA_API) {
                 doOpen();
             } else {
-                int ret = RawCamOpen(mCurrentCameraId);
+                int ret = RawCam_Open(new WeakReference<IrisguiActicity>(IrisguiActicity.this),
+                        mCurrentCameraId);
                 if (ret == 0)
                     dspStat("camera opened");
                 else
@@ -630,7 +632,7 @@ public class IrisguiActicity extends Activity
                 if (checkNull(true)) return;
                 doClose();
             } else {
-                int ret = RawCamClose();
+                int ret = RawCam_Close();
                 if (ret == 0)
                     dspStat("camera closed");
                 else
@@ -675,7 +677,7 @@ public class IrisguiActicity extends Activity
                 if (checkNull(true)) return;
                 doStopStream();
             } else {
-                int ret = RawCamStopStream();
+                int ret = RawCam_StopStream();
                 if (ret == 0){
                     dspStat("stream stopped ");
                     dspData("data empty");
@@ -700,7 +702,7 @@ public class IrisguiActicity extends Activity
                 if (checkNull(true)) return;
                 doSetLed(mLed1Level, mLed2Level);
             } else {
-                RawCamSetLed(mLed1Level, mLed2Level);
+                RawCam_SetLed(mLed1Level, mLed2Level);
             }
         }
 
@@ -774,11 +776,11 @@ public class IrisguiActicity extends Activity
                 }
             } else {
                 if (v.getId() == R.id.readRegister) {
-                    int value1 = RawCamReadRegister(mAddr);
+                    int value1 = RawCam_ReadRegister(mAddr);
                     String tmpStr = "0x" + Integer.toHexString(value1);
                     mEditRegisterValue.setText(tmpStr);
                 } else if (v.getId() == R.id.writeRegister) {
-                    RawCamWriteRegister(mAddr, mValue);
+                    RawCam_WriteRegister(mAddr, mValue);
                 }
             }
         }
@@ -942,8 +944,9 @@ public class IrisguiActicity extends Activity
     // start stream
     public void doStartRawStream() {
         Log.d(TAG, "start raw stream");
-        RawCamRegisterFrameCallback();
-        int ret = RawCamStartStream();
+        mDataCallback = this;
+        RawCam_RegisterFrameCallback();
+        int ret = RawCam_StartStream();
         if (ret == 0)
             dspStat("stream started ");
         else
@@ -1139,7 +1142,7 @@ public class IrisguiActicity extends Activity
     }
 
     @Override
-    public void onDataReceived(byte[] data) {
+    public void onDataReceived(byte[] data, Object ir) {
         this.data = data;
 
         if (data != null) {
@@ -1148,17 +1151,23 @@ public class IrisguiActicity extends Activity
         }
     }
 
-    private class EventHandler extends Handler {
-        public EventHandler(Looper looper) {
+    private class EventHandler extends Handler
+    {
+        private final IrisguiActicity mIr;
+
+        public EventHandler(IrisguiActicity c, Looper looper) {
             super(looper);
+            mIr = c;
         }
 
         @Override
         public void handleMessage(Message msg) {
-            switch (msg.what) {
+            switch(msg.what) {
                 case IRIS_MSG_RECEIVED_RAW_FRAME:
-
-                    break;
+                    if (mDataCallback != null) {
+                        mDataCallback.onDataReceived((byte[])msg.obj, mIr);
+                    }
+                    return;
                 default:
                     Log.e(TAG, "Unknown message type " + msg.what);
                     return;
@@ -1166,14 +1175,16 @@ public class IrisguiActicity extends Activity
         }
     }
 
-    private static void postEvent(Object ref, int what, int arg1, int arg2, Object obj) {
-        IrisguiActicity ir = (IrisguiActicity)((WeakReference)ref).get();
-        if (ir == null)
+    private static void postRawDataEvent(Object ref,
+                        int what, int arg1, int arg2, Object obj)
+    {
+        IrisguiActicity c = (IrisguiActicity)((WeakReference)ref).get();
+        if (c == null)
             return;
 
-        if (ir.mEventHandler != null) {
-            Message m = ir.mEventHandler.obtainMessage(what, arg1, arg2, obj);
-            ir.mEventHandler.sendMessage(m);
+        if (c.mEventHandler != null) {
+            Message m = c.mEventHandler.obtainMessage(what, arg1, arg2, obj);
+            c.mEventHandler.sendMessage(m);
         }
     }
 }
