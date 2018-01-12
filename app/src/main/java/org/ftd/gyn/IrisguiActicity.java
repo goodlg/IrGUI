@@ -1147,7 +1147,7 @@ public class IrisguiActicity extends Activity
 
         if (data != null) {
             Log.d(TAG, "length:" + data.length);
-            dspData("data length:" + data.length);
+            //dspData("data length:" + data.length);
         }
     }
 

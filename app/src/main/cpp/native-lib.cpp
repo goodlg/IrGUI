@@ -5,8 +5,8 @@
 #include <string>
 #include <android/log.h>
 #include <dlfcn.h>
-#include <assert.h>
 
+#define UNUSED(x) (void)(x)
 #define NELEM(x) ((int) (sizeof(x) / sizeof((x)[0])))
 
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -19,8 +19,6 @@ enum{
     IRIS_MSG_RECEIVED_RAW_FRAME = 0x001,
     IRIS_MSG_ALL_MSGS = 0xFFFF
 } ;
-
-#define UNUSED(x) (void)(x)
 
 static void *s_handle = NULL;
 
@@ -43,35 +41,36 @@ CAC_FUNC3 WriteRegister = NULL;
 CAC_FUNC3 SetLed = NULL;
 CAC_FUNC4 RegisterFrameCallback = NULL;
 
-JNIEnv *gEnv = NULL;
+static JavaVM *m_JVM = NULL;
 jclass gIrisClass = NULL;
 jobject gIrisJObjectWeak = NULL;
 jmethodID gPostEvent = NULL;
 
 static void dataCallback(void *dataPtr, int size) {
     jbyteArray obj = NULL;
+    JavaVMAttachArgs args = { JNI_VERSION_1_6, __FUNCTION__, NULL };
+    JNIEnv* env = NULL;
+    m_JVM->AttachCurrentThread(&env, &args);
 
-    uint8_t *dataBase = (uint8_t*)dataPtr;
+    uint8_t *dataBase = (uint8_t *)dataPtr;
     LOGI("[IR_JNI]: dataCallback, size=%d", size);
     if (dataBase != NULL) {
-        const jbyte* data = reinterpret_cast<const jbyte*>(dataBase + size);
-        obj = gEnv->NewByteArray(size >= 0 ? size : 0 );
+        const jbyte *data = reinterpret_cast<const jbyte *>(dataBase);
+        obj = env->NewByteArray(size >= 0 ? size : 0 );
         if (obj == NULL) {
             LOGE("[IR_JNI] Couldn't allocate byte array for raw data");
-            gEnv->ExceptionClear();
+            env->ExceptionClear();
         } else {
-            gEnv->SetByteArrayRegion(obj, 0, size, data);
+            env->SetByteArrayRegion(obj, 0, size, data);
         }
     }
 
-    // post image data to Java
-    gEnv->CallStaticVoidMethod(gIrisClass, gPostEvent,
+    // post data to Java
+    env->CallStaticVoidMethod(gIrisClass, gPostEvent,
             gIrisJObjectWeak, IRIS_MSG_RECEIVED_RAW_FRAME, 0, 0, obj);
     if (obj) {
-        gEnv->DeleteLocalRef(obj);
+        env->DeleteLocalRef(obj);
     }
-
-    LOGI("[IR_JNI]: dataCallback end");
 }
 static jint ApiInit(JNIEnv *, jobject) {
     char *error;
@@ -236,11 +235,11 @@ static int registerNativeMethods(JNIEnv* env, const char* className,
 }
 
 jint JNI_OnLoad(JavaVM* jvm, void*) {
+    m_JVM = jvm;
     JNIEnv *env = NULL;
     if (jvm->GetEnv((void**) &env, JNI_VERSION_1_6)) {
         return JNI_ERR;
     }
-    gEnv = env;
     if (registerNativeMethods(env, "org/ftd/gyn/IrisguiActicity",
             sMethods, NELEM(sMethods)) == -1) {
         return JNI_ERR;
