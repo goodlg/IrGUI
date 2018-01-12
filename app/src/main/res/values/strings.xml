@@ -1,0 +1,53 @@
+<resources>
+    <string name="app_name">IrisGUI</string>
+    <string name="blank"></string>
+    <string name="open_camera_note">Please open camera first</string>
+    <string name="register_addr_empty">Register address is empty</string>
+    <string name="register_addr_value">Register value is empty</string>
+    <string name="camera_id">Camera id</string>
+    <string name="registerAddr">Addr</string>
+    <string name="registerValue">Value</string>
+    <string name="stat">status</string>
+
+    <string name="width">width</string>
+    <string name="height">height</string>
+    <string name="x">X</string>
+
+    <string name="open">open</string>
+    <string name="frameRate">Frame Rate</string>
+    <string name="setFrameRate">set Frame Rate</string>
+    <string name="format">Format</string>
+    <string name="setFormat">set Format</string>
+
+    <string name="resolution">Resolution</string>
+    <string name="setResolution">set Resolution</string>
+    <string name="startStream">start Stream</string>
+    <string name="stopStream">stop Stream</string>
+
+    <string name="getBuffer">get Buffer</string>
+    <string name="releaseBuffer">release Buffer</string>
+
+    <string name="register">Register</string>
+    <string name="readRegister">read Register</string>
+    <string name="writeRegister">write Register</string>
+
+    <string name="setFocus">set Focus</string>
+    <string name="dump">dump raw to file</string>
+    <string name="data_empty">data empty</string>
+    <string name="dumpOK">dump raw successfully!!!</string>
+    <string name="dumpFailed">dump raw failed!!!</string>
+
+    <string name="led1">Led 1</string>
+    <string name="led2">Led 2</string>
+    <string name="setLed">set Led</string>
+
+    <string name="close">close</string>
+
+    <string name="BAYER_QCOM_10GBRG">RAW</string>
+    <string name="NV21">YUV</string>
+
+    <string name="interfaceMode">Mode</string>
+    <string name="j_interface">java interface</string>
+    <string name="c_interface">c interface</string>
+    <string name="setInterface">set interface</string>
+</resources>

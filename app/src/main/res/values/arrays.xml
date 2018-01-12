@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="imageFormat">
+        <item>@string/NV21</item>
+        <item>@string/BAYER_QCOM_10GBRG</item>
+    </string-array>
+    <string-array name="interfaceMode">
+        <item>@string/j_interface</item>
+        <item>@string/c_interface</item>
+    </string-array>
+</resources>
