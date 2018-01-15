@@ -16,7 +16,8 @@
 #define IRIS_LIB_PATH "/system/lib/libraw_interface.so"
 
 enum{
-    IRIS_MSG_RECEIVED_RAW_FRAME = 0x001,
+    IRIS_MSG_CONTINUE_RAW_FRAME = 0x001,
+    IRIS_MSG_ONE_RAW_FRAME = 0x002,
     IRIS_MSG_ALL_MSGS = 0xFFFF
 } ;
 
@@ -28,6 +29,7 @@ typedef int (*CAC_FUNC2)(int, int *);
 typedef int (*CAC_FUNC3)(int, int);
 typedef void (*PFN_FRAMEPOST_CB)(void *pFrameHeapBase, int frame_len);
 typedef int (*CAC_FUNC4)(PFN_FRAMEPOST_CB);
+typedef int (*CAC_FUNC5)(int *);
 
 static void dataCallback(void *dataPtr, int size);
 
@@ -39,6 +41,7 @@ CAC_FUNC StopStream = NULL;
 CAC_FUNC2 ReadRegister = NULL;
 CAC_FUNC3 WriteRegister = NULL;
 CAC_FUNC3 SetLed = NULL;
+CAC_FUNC5 GetBuffer = NULL;
 CAC_FUNC4 RegisterFrameCallback = NULL;
 
 static JavaVM *m_JVM = NULL;
@@ -51,18 +54,18 @@ static void dataCallback(void *dataPtr, int size) {
     JavaVMAttachArgs args = { JNI_VERSION_1_6, __FUNCTION__, NULL };
     JNIEnv* env = NULL;
     m_JVM->AttachCurrentThread(&env, &args);
-    
+
     // allocate Java byte array and copy data
     if (dataPtr != NULL) {
         uint8_t *dataBase = (uint8_t *)dataPtr;
-        LOGI("[IR_JNI]: dataCallback, size=%d", size);
+        LOGI("dataCallback, size=%d", size);
 
         if (dataBase != NULL) {
             const jbyte *data = reinterpret_cast<const jbyte *>(dataBase);
             obj = env->NewByteArray(size >= 0 ? size : 0 );
 
             if (obj == NULL) {
-                LOGE("[IR_JNI] Couldn't allocate byte array for raw data");
+                LOGE("Couldn't allocate byte array for raw data");
                 env->ExceptionClear();
             } else {
                 env->SetByteArrayRegion(obj, 0, size, data);
@@ -74,7 +77,7 @@ static void dataCallback(void *dataPtr, int size) {
 
     // post data to Java
     env->CallStaticVoidMethod(gIrisClass, gPostEvent,
-            gIrisJObjectWeak, IRIS_MSG_RECEIVED_RAW_FRAME, 0, 0, obj);
+            gIrisJObjectWeak, IRIS_MSG_CONTINUE_RAW_FRAME, 0, 0, obj);
     if (obj) {
         env->DeleteLocalRef(obj);
     }
@@ -82,11 +85,11 @@ static void dataCallback(void *dataPtr, int size) {
 }
 static jint ApiInit(JNIEnv *, jobject) {
     char *error;
-    LOGI("[IR_JNI]: ApiInit");
+    LOGI("ApiInit");
 
     s_handle = dlopen(IRIS_LIB_PATH, RTLD_NOW);
     if (NULL == s_handle) {
-        LOGE("[IR_JNI]: Failed to get IRIS handle in %s()! (Reason=%s)\n", __FUNCTION__, dlerror());
+        LOGE("Failed to get IRIS handle in %s()! (Reason=%s)\n", __FUNCTION__, dlerror());
         return JNI_FALSE;
     }
 
@@ -95,66 +98,72 @@ static jint ApiInit(JNIEnv *, jobject) {
 
     *(void **) (&Open) = dlsym(s_handle, "RawCam_Open");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_Open handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_Open handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&Close) = dlsym(s_handle, "RawCam_Close");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_Close handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_Close handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&StartStream) = dlsym(s_handle, "RawCam_StartStream");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_StartStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_StartStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&StopStream) = dlsym(s_handle, "RawCam_StopStream");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_StopStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_StopStream handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&ReadRegister) = dlsym(s_handle, "RawCam_ReadRegister");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_ReadRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_ReadRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&WriteRegister) = dlsym(s_handle, "RawCam_WriteRegister");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_WriteRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_WriteRegister handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&SetLed) = dlsym(s_handle, "RawCam_SetLed");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_SetLed handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_SetLed handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        return JNI_FALSE;
+    }
+
+    *(void **) (&GetBuffer) = dlsym(s_handle, "RawCam_GetBuffer");
+    if ((error = dlerror()) != NULL)  {
+        LOGE("Failed to get RawCam_GetBuffer handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
     *(void **) (&RegisterFrameCallback) = dlsym(s_handle, "RawCam_RegisterFrameCallback");
     if ((error = dlerror()) != NULL)  {
-        LOGE("[IR_JNI]: Failed to get RawCam_RegisterFrameCallback handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        LOGE("Failed to get RawCam_RegisterFrameCallback handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
-    LOGI("[IR_JNI]: INIT done");
+    LOGI("INIT done");
     return JNI_TRUE;
 }
 
 static jint ApiDeinit(JNIEnv *, jobject) {
     if (s_handle != NULL) {
         dlclose(s_handle);
-        LOGI("[IR_JNI]: ApiDeinit done");
+        LOGI("ApiDeinit done");
     }
     return JNI_OK;
 }
 
 static jint RawCam_Open(JNIEnv *env, jobject thiz, jobject weak_ir, jint camId) {
-    LOGI("[IR_JNI]: RawCamOpen (id %d)", camId);
+    LOGI("RawCamOpen (id %d)", camId);
 
     jclass clazz = env->GetObjectClass(thiz);
     if (clazz == NULL) {
@@ -169,7 +178,7 @@ static jint RawCam_Open(JNIEnv *env, jobject thiz, jobject weak_ir, jint camId) 
 }
 
 static jint RawCam_Close(JNIEnv *env, jobject) {
-    LOGI("[IR_JNI]: RawCam_Close");
+    LOGI("RawCam_Close");
 
     if (gIrisJObjectWeak != NULL) {
         env->DeleteGlobalRef(gIrisJObjectWeak);
@@ -184,34 +193,63 @@ static jint RawCam_Close(JNIEnv *env, jobject) {
 }
 
 static jint RawCam_StartStream(JNIEnv *, jobject) {
-    LOGI("[IR_JNI]: RawCam_StartStream");
+    LOGI("RawCam_StartStream");
     return StartStream();
 }
 
 static jint RawCam_StopStream(JNIEnv *, jobject) {
-    LOGI("[IR_JNI]: RawCam_StopStream");
+    LOGI("RawCam_StopStream");
     return StopStream();
 }
 
 static jint RawCam_ReadRegister(JNIEnv *, jobject, jint addr) {
     jint value = 0;
-    LOGI("[IR_JNI]: ReadRegister, addr=%d", addr);
+    LOGI("ReadRegister, addr=%d", addr);
     ReadRegister(addr, &value);
     return value;
 }
 
 static jint RawCam_WriteRegister(JNIEnv *, jobject, jint addr, jint value) {
-    LOGI("[IR_JNI]: WriteRegister, addr=%d, value=%d", addr, value);
+    LOGI("WriteRegister, addr=%d, value=%d", addr, value);
     return WriteRegister(addr, value);
 }
 
 static jint RawCam_SetLed(JNIEnv *, jobject, jint led1, jint led2) {
-    LOGI("[IR_JNI]: RawCamSetLed, led1=%d, led2=%d", led1, led2);
+    LOGI("RawCamSetLed, led1=%d, led2=%d", led1, led2);
     return SetLed(led1, led2);
 }
 
+static void RawCam_GetBuffer(JNIEnv *env, jobject) {
+    LOGI("GetBuffer");
+    jbyteArray obj = NULL;
+    int size = 0;
+    uint8_t *database = (uint8_t *)GetBuffer(&size);
+
+    // allocate Java byte array and copy data
+    if (database != NULL) {
+        const jbyte *data = reinterpret_cast<const jbyte *>(database);
+        obj = env->NewByteArray(size >= 0 ? size : 0 );
+
+        if (obj == NULL) {
+            LOGE("Couldn't allocate byte array for raw data");
+            env->ExceptionClear();
+        } else {
+            env->SetByteArrayRegion(obj, 0, size, data);
+        }
+    } else {
+        LOGE("image heap is NULL");
+    }
+
+    // post data to Java
+    env->CallStaticVoidMethod(gIrisClass, gPostEvent,
+                              gIrisJObjectWeak, IRIS_MSG_ONE_RAW_FRAME, 0, 0, obj);
+    if (obj) {
+        env->DeleteLocalRef(obj);
+    }
+}
+
 static jint RawCam_RegisterFrameCallback(JNIEnv *, jobject) {
-    LOGI("[IR_JNI]: RawCam_RegisterFrameCallback...");
+    LOGI("RawCam_RegisterFrameCallback...");
     return RegisterFrameCallback(dataCallback);
 }
 
@@ -225,6 +263,7 @@ static const JNINativeMethod sMethods[] = {
     {"RawCam_ReadRegister", "(I)I", (void*) RawCam_ReadRegister},
     {"RawCam_WriteRegister", "(II)I", (void*) RawCam_WriteRegister},
     {"RawCam_SetLed", "(II)I", (void*) RawCam_SetLed},
+    {"RawCam_GetBuffer", "()V", (void*) RawCam_GetBuffer},
     {"RawCam_RegisterFrameCallback", "()I", (void*) RawCam_RegisterFrameCallback},
 };
 

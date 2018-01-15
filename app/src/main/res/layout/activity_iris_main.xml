@@ -30,6 +30,13 @@
             android:text="@string/blank"
             android:textSize="25dp" />
 
+        <TextView
+            android:id="@+id/textBuffer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/blank"
+            android:textSize="25dp" />
+
         <RelativeLayout
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
@@ -202,8 +209,7 @@
                 android:layout_width="150dp"
                 android:layout_height="wrap_content"
                 android:layout_alignParentLeft="true"
-                android:text="@string/getBuffer"
-                android:visibility="gone"/>
+                android:text="@string/getBuffer" />
             <Button
                 android:id="@+id/releaseBuffer"
                 android:layout_width="150dp"

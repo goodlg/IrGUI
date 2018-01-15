@@ -65,6 +65,7 @@ public class IrisguiActicity extends Activity
     // ui
     private TextView tvStat = null;
     private TextView tvData = null;
+    private TextView tvBuffer = null;
     private ImageView mImage;
     private EditText mEditOpen;
     private EditText mEditFrameRate;
@@ -85,6 +86,7 @@ public class IrisguiActicity extends Activity
     private Button mSetResolution;
     private Button mDumpRaw;
     private ImageView mImageContent;
+    private Button mGetBuffer;
 
     private SurfaceTexture mSurfaceTexture;
     private TextureView mTextureView;
@@ -134,7 +136,8 @@ public class IrisguiActicity extends Activity
     private EventHandler mEventHandler;
     private DataCallback mDataCallback;
 
-    private static final int IRIS_MSG_RECEIVED_RAW_FRAME    = 0x001;
+    private static final int IRIS_MSG_CONTINUE_RAW_FRAME    = 0x001;
+    private static final int IRIS_MSG_ONE_RAW_FRAME    = 0x002;
 
     // -----------------------------------------------------
     //flag
@@ -159,6 +162,7 @@ public class IrisguiActicity extends Activity
     public native int RawCam_ReadRegister(int addr);
     public native int RawCam_WriteRegister(int addr, int value);
     public native int RawCam_SetLed(int led1, int led2);
+    public native void RawCam_GetBuffer();
     public native int RawCam_RegisterFrameCallback();
 
     // ------------------------------------------------------
@@ -291,6 +295,8 @@ public class IrisguiActicity extends Activity
             mSetFormat.setVisibility(View.VISIBLE);
             mFormats.setVisibility(View.VISIBLE);
             mSetResolution.setVisibility(View.VISIBLE);
+            mGetBuffer.setVisibility(View.GONE);
+            tvBuffer.setVisibility(View.GONE);
             //mDumpRaw.setVisibility(View.VISIBLE);
         } else {
             mTvFrameRate.setVisibility(View.GONE);
@@ -305,6 +311,8 @@ public class IrisguiActicity extends Activity
             mSetFormat.setVisibility(View.GONE);
             mFormats.setVisibility(View.GONE);
             mSetResolution.setVisibility(View.GONE);
+            mGetBuffer.setVisibility(View.VISIBLE);
+            tvBuffer.setVisibility(View.VISIBLE);
             //mDumpRaw.setVisibility(View.GONE);
         }
     }
@@ -358,6 +366,8 @@ public class IrisguiActicity extends Activity
         }
         ((Button) findViewById(R.id.setInterface)).setOnClickListener(mSetInterfaceListener);
 
+        (mGetBuffer = (Button) findViewById(R.id.getBuffer)).setOnClickListener(mGetBufferListener);
+
         mTextureView = (TextureView) findViewById(R.id.preview_content);
         mTextureView.setSurfaceTextureListener(this);
         mTextureView.removeOnLayoutChangeListener(mLayoutListener);
@@ -371,6 +381,7 @@ public class IrisguiActicity extends Activity
         // ui items
         tvStat = (TextView) findViewById(R.id.textStatus);
         tvData = (TextView) findViewById(R.id.textData);
+        tvBuffer = (TextView) findViewById(R.id.textBuffer);
 
         setUpUI();
     }
@@ -655,9 +666,19 @@ public class IrisguiActicity extends Activity
         }
     };
 
+    // ------------------------------------------------------
+    // callback for SET INTERFACE button press
     private OnClickListener mSetInterfaceListener = new OnClickListener() {
         public void onClick(View v) {
             mainScreen();
+        }
+    };
+
+    // ------------------------------------------------------
+    // callback for GET BUFFER button press
+    private OnClickListener mGetBufferListener = new OnClickListener() {
+        public void onClick(View v) {
+            RawCam_GetBuffer();
         }
     };
 
@@ -686,6 +707,7 @@ public class IrisguiActicity extends Activity
                 if (ret == 0){
                     dspStat("stream stopped ");
                     dspData("data empty");
+                    dspBuffer("buffer empty");
                 } else {
                     dspStat("stop stream failed ");
                 }
@@ -922,6 +944,7 @@ public class IrisguiActicity extends Activity
             mParams = null;
             dspStat("camera closed");
             dspData("data empty");
+            dspBuffer("buffer empty");
         } catch (IllegalArgumentException
                 | InvocationTargetException
                 | IllegalAccessException e) {
@@ -1026,6 +1049,7 @@ public class IrisguiActicity extends Activity
                 | InvocationTargetException
                 | IllegalAccessException e) {
             e.printStackTrace();
+            dspStat("start stream failed ");
         }
 
 //        if (mPreviewWidth != 0 && mPreviewHeight != 0) {
@@ -1040,7 +1064,8 @@ public class IrisguiActicity extends Activity
         //RawCam_StopStream
         //fot test camera @hide api
         try {
-            Log.d(TAG, "stop stream");
+            if (DEBUG)
+                Log.d(TAG, "stop stream");
             stopStreamMethod.invoke(mCamera);
             dspStat("stream stopped");
             dspData("data empty");
@@ -1048,6 +1073,7 @@ public class IrisguiActicity extends Activity
                 | InvocationTargetException
                 | IllegalAccessException e) {
             e.printStackTrace();
+            dspStat("stop stream failed ");
         }
     }
 
@@ -1101,8 +1127,9 @@ public class IrisguiActicity extends Activity
 //                mTextureView.setVisibility(View.VISIBLE);
 //                Log.d(TAG, "bmSnap is null");
 //            }
-            Log.d(TAG, "length:" + data.length);
             dspData("data length:" + data.length);
+        } else {
+            dspData("data empty");
         }
     }
 
@@ -1149,18 +1176,32 @@ public class IrisguiActicity extends Activity
         tvData.setText(s);
     }
 
+    // ----------------------------------------
+    // display buffer string
+    private void dspBuffer(String s) {
+        tvBuffer.setText(s);
+    }
+
     @Override
     public void onError(int error, Camera camera) {
         // TODO Auto-generated method stub
     }
 
     @Override
-    public void onDataReceived(byte[] data, Object ir) {
+    public void onDataReceived(Object obj, int mode, byte[] data) {
         this.data = data;
 
         if (data != null) {
-            Log.d(TAG, "length:" + data.length);
-            dspData("data length:" + data.length);
+            if (DEBUG)
+                Log.d(TAG, "data length:" + data.length);
+            if (mode == 0) {//continue mode
+                dspData("data length:" + data.length);
+            } else {//oneshot mode
+                dspBuffer("buffer length:" + data.length);
+            }
+        } else {
+            dspData("data empty");
+            dspBuffer("buffer empty");
         }
     }
 
@@ -1176,9 +1217,16 @@ public class IrisguiActicity extends Activity
         @Override
         public void handleMessage(Message msg) {
             switch(msg.what) {
-                case IRIS_MSG_RECEIVED_RAW_FRAME:
-                    if (mDataCallback != null) {
-                        mDataCallback.onDataReceived((byte[])msg.obj, mIr);
+                case IRIS_MSG_CONTINUE_RAW_FRAME:
+                    DataCallback pContineCb = mDataCallback;
+                    if (pContineCb != null) {
+                        pContineCb.onDataReceived(mIr, 0, (byte[])msg.obj);
+                    }
+                    return;
+                case IRIS_MSG_ONE_RAW_FRAME:
+                    DataCallback pOneCb = mDataCallback;
+                    if (pOneCb != null) {
+                        pOneCb.onDataReceived(mIr, 1, (byte[])msg.obj);
                     }
                     return;
                 default:
