@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
@@ -82,6 +84,7 @@ public class IrisguiActicity extends Activity
     private Spinner mInterfaceMode;
     private Button mSetResolution;
     private Button mDumpRaw;
+    private ImageView mImageContent;
 
     private SurfaceTexture mSurfaceTexture;
     private TextureView mTextureView;
@@ -359,6 +362,8 @@ public class IrisguiActicity extends Activity
         mTextureView.setSurfaceTextureListener(this);
         mTextureView.removeOnLayoutChangeListener(mLayoutListener);
         mTextureView.addOnLayoutChangeListener(mLayoutListener);
+
+        mImageContent = (ImageView) findViewById(R.id.image_content);
 
         mOrientationResize = false;
         mPrevOrientationResize = false;
@@ -1088,6 +1093,14 @@ public class IrisguiActicity extends Activity
         }
 
         if (data != null) {
+//            Bitmap bmSnap = BitmapFactory.decodeByteArray(data, 0, data.length);
+//            if (bmSnap != null) {
+//                mTextureView.setVisibility(View.INVISIBLE);
+//                mImageContent.setImageBitmap(bmSnap);
+//            } else {
+//                mTextureView.setVisibility(View.VISIBLE);
+//                Log.d(TAG, "bmSnap is null");
+//            }
             Log.d(TAG, "length:" + data.length);
             dspData("data length:" + data.length);
         }
@@ -1147,7 +1160,7 @@ public class IrisguiActicity extends Activity
 
         if (data != null) {
             Log.d(TAG, "length:" + data.length);
-            //dspData("data length:" + data.length);
+            dspData("data length:" + data.length);
         }
     }
 

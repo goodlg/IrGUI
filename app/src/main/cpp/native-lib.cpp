@@ -51,17 +51,24 @@ static void dataCallback(void *dataPtr, int size) {
     JavaVMAttachArgs args = { JNI_VERSION_1_6, __FUNCTION__, NULL };
     JNIEnv* env = NULL;
     m_JVM->AttachCurrentThread(&env, &args);
+    
+    // allocate Java byte array and copy data
+    if (dataPtr != NULL) {
+        uint8_t *dataBase = (uint8_t *)dataPtr;
+        LOGI("[IR_JNI]: dataCallback, size=%d", size);
 
-    uint8_t *dataBase = (uint8_t *)dataPtr;
-    LOGI("[IR_JNI]: dataCallback, size=%d", size);
-    if (dataBase != NULL) {
-        const jbyte *data = reinterpret_cast<const jbyte *>(dataBase);
-        obj = env->NewByteArray(size >= 0 ? size : 0 );
-        if (obj == NULL) {
-            LOGE("[IR_JNI] Couldn't allocate byte array for raw data");
-            env->ExceptionClear();
+        if (dataBase != NULL) {
+            const jbyte *data = reinterpret_cast<const jbyte *>(dataBase);
+            obj = env->NewByteArray(size >= 0 ? size : 0 );
+
+            if (obj == NULL) {
+                LOGE("[IR_JNI] Couldn't allocate byte array for raw data");
+                env->ExceptionClear();
+            } else {
+                env->SetByteArrayRegion(obj, 0, size, data);
+            }
         } else {
-            env->SetByteArrayRegion(obj, 0, size, data);
+            LOGE("image heap is NULL");
         }
     }
 
@@ -71,6 +78,7 @@ static void dataCallback(void *dataPtr, int size) {
     if (obj) {
         env->DeleteLocalRef(obj);
     }
+    m_JVM->DetachCurrentThread();
 }
 static jint ApiInit(JNIEnv *, jobject) {
     char *error;
