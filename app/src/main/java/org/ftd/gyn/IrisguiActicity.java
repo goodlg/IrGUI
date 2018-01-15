@@ -54,7 +54,7 @@ public class IrisguiActicity extends Activity
         implements TextureView.SurfaceTextureListener, Camera.ErrorCallback,
         Camera.PreviewCallback, DataCallback {
 
-    private static final String TAG = "IrisGui";
+    private static final String TAG = "Iris-Gui";
 
     // -----------------------------------------------------
     // statics
@@ -117,6 +117,7 @@ public class IrisguiActicity extends Activity
     private static final String ADDRESS_PREFIX = "0x";
 
     private byte[] data;
+    private byte[] one_frame_data;
 
     //fot test camera @hide api
     private Method startStreamMethod = null;
@@ -759,8 +760,9 @@ public class IrisguiActicity extends Activity
     // callback for SET RESOLUTION button press
     private OnClickListener mDumpRawListener = new OnClickListener() {
         public void onClick(View v) {
+            if (USE_JAVA_API)
             if (checkNull(true)) return;
-            dumpToFile(data);
+            dumpToFile(one_frame_data != null ? one_frame_data : data);
         }
     };
 
@@ -874,7 +876,8 @@ public class IrisguiActicity extends Activity
                 FileOutputStream fos = new FileOutputStream(filFSpec);
                 fos.write(data);
                 fos.close();
-                Toast.makeText(this, R.string.dumpOK, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, one_frame_data != null ? R.string.dumpOneOK:R.string.dumpOK, Toast.LENGTH_SHORT).show();
+                one_frame_data = null;
             } catch (Throwable thrw) {
                 Log.i(TAG, "Create '" + filFSpec.getAbsolutePath() + "' failed");
                 Log.i(TAG, "Error=" + thrw.getMessage());
@@ -1197,6 +1200,7 @@ public class IrisguiActicity extends Activity
             if (mode == 0) {//continue mode
                 dspData("data length:" + data.length);
             } else {//oneshot mode
+                this.one_frame_data = data;
                 dspBuffer("buffer length:" + data.length);
             }
         } else {
