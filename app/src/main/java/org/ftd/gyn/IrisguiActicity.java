@@ -866,7 +866,7 @@ public class IrisguiActicity extends Activity
         if (data != null) {
             File filFSpec = null;
             try {
-                String timeString = new SimpleDateFormat("HH:mm:ss")
+                String timeString = new SimpleDateFormat("HH-mm-ss")
                         .format(new Date());
                 String strFile = String.format("iris_raw_img_%s.%s", timeString, "raw");
                 File filRoot = Environment.getExternalStorageDirectory();
