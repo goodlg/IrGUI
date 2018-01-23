@@ -101,8 +101,9 @@
                 android:layout_width="100dp"
                 android:layout_height="wrap_content"
                 android:layout_alignParentLeft="true"
-                android:inputType="numberSigned"
-                android:hint="@string/frameRate" />
+                android:numeric="decimal|integer|signed"
+                android:maxLength="4"
+                android:hint="@string/frameRateRange" />
 
             <Button
                 android:id="@+id/setFrameRate"
@@ -161,7 +162,7 @@
                 android:id="@+id/x"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_toRightOf="@+id/editFrameWidth"
+                android:layout_toRightOf="@id/editFrameWidth"
                 android:layout_alignBaseline="@id/editFrameWidth"
                 android:text="@string/x"/>
             <EditText
@@ -175,14 +176,19 @@
                 android:id="@+id/setResolution"
                 android:layout_width="150dp"
                 android:layout_height="wrap_content"
-                android:layout_toRightOf="@+id/editFrameHeight"
+                android:layout_toRightOf="@id/editFrameHeight"
                 android:text="@string/setResolution"/>
         </RelativeLayout>
 
+        <TextView
+            android:id="@+id/tvStream"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/stream"
+            style="@style/TitleLable"/>
         <RelativeLayout
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
             android:orientation="horizontal" >
 
             <Button
@@ -225,6 +231,38 @@
                 android:text="@string/dump" />
         </RelativeLayout>
 
+        <TextView
+            android:id="@+id/tvFoucs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/focus"
+            style="@style/TitleLable"/>
+
+        <RelativeLayout
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" >
+
+            <Spinner
+                android:id="@+id/focusMode"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:entries="@array/focusMode" />
+
+            <Button
+                android:id="@+id/setFocus"
+                android:layout_width="150dp"
+                android:layout_height="wrap_content"
+                android:layout_toRightOf="@id/focusMode"
+                android:text="@string/setFocus" />
+        </RelativeLayout>
+
+        <TextView
+            android:id="@+id/tvCamId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/camId"
+            style="@style/TitleLable"/>
         <RelativeLayout
             android:layout_width="fill_parent"
             android:layout_height="wrap_content"
@@ -250,14 +288,6 @@
                 android:layout_height="wrap_content"
                 android:layout_toRightOf="@id/open"
                 android:text="@string/close" />
-
-            <Button
-                android:id="@+id/setFocus"
-                android:layout_width="150dp"
-                android:layout_height="wrap_content"
-                android:layout_alignParentRight="true"
-                android:text="@string/setFocus"
-                android:visibility="gone"/>
         </RelativeLayout>
 
         <TextView

@@ -5,6 +5,7 @@
 #include <string>
 #include <android/log.h>
 #include <dlfcn.h>
+#include <math.h>
 
 #define UNUSED(x) (void)(x)
 #define NELEM(x) ((int) (sizeof(x) / sizeof((x)[0])))
@@ -30,6 +31,7 @@ typedef int (*CAC_FUNC3)(int, int);
 typedef void (*PFN_FRAMEPOST_CB)(void *pFrameHeapBase, int frame_len);
 typedef int (*CAC_FUNC4)(PFN_FRAMEPOST_CB);
 typedef int (*CAC_FUNC5)(int *);
+typedef int (*CAC_FUNC6)(float);
 
 static void dataCallback(void *dataPtr, int size);
 
@@ -43,6 +45,9 @@ CAC_FUNC3 WriteRegister = NULL;
 CAC_FUNC3 SetLed = NULL;
 CAC_FUNC5 GetBuffer = NULL;
 CAC_FUNC4 RegisterFrameCallback = NULL;
+CAC_FUNC6 SetFps = NULL;
+CAC_FUNC3 SetResolution = NULL;
+CAC_FUNC1 SetFocus = NULL;
 
 static JavaVM *m_JVM = NULL;
 jclass gIrisClass = NULL;
@@ -141,12 +146,30 @@ static jint ApiInit(JNIEnv *, jobject) {
     *(void **) (&GetBuffer) = dlsym(s_handle, "RawCam_GetBuffer");
     if ((error = dlerror()) != NULL)  {
         LOGE("Failed to get RawCam_GetBuffer handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
-        return JNI_FALSE;
+        //return JNI_FALSE;
     }
 
     *(void **) (&RegisterFrameCallback) = dlsym(s_handle, "RawCam_RegisterFrameCallback");
     if ((error = dlerror()) != NULL)  {
         LOGE("Failed to get RawCam_RegisterFrameCallback handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        return JNI_FALSE;
+    }
+
+    *(void **) (&SetFps) = dlsym(s_handle, "RawCam_SetFps");
+    if ((error = dlerror()) != NULL)  {
+        LOGE("Failed to get RawCam_SetFps handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        return JNI_FALSE;
+    }
+
+    *(void **) (&SetResolution) = dlsym(s_handle, "RawCam_SetResolution");
+    if ((error = dlerror()) != NULL)  {
+        LOGE("Failed to get RawCam_SetResolution handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        return JNI_FALSE;
+    }
+
+    *(void **) (&SetFocus) = dlsym(s_handle, "RawCam_SetFocus");
+    if ((error = dlerror()) != NULL)  {
+        LOGE("Failed to get RawCam_SetFocus handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
         return JNI_FALSE;
     }
 
@@ -219,8 +242,26 @@ static jint RawCam_SetLed(JNIEnv *, jobject, jint led1, jint led2) {
     return SetLed(led1, led2);
 }
 
+static jint RawCam_SetFps(JNIEnv *, jobject, jfloat fps) {
+    LOGI("RawCam_SetFps, fps=%f", fps);
+    if (SetFps == NULL) return -1;
+    return SetFps(fps);
+}
+
+static jint RawCam_SetResolution(JNIEnv *, jobject, jint width, jint height) {
+    LOGI("SetResolution, width=%d, height=%d", width, height);
+    if (SetResolution == NULL) return -1;
+    return SetResolution(width, height);
+}
+
+static jint RawCam_SetFocus(JNIEnv *, jobject, jint mode) {
+    LOGI("SetFocus, focus mode=%d", mode);
+    return SetFocus(mode);
+}
+
 static void RawCam_GetBuffer(JNIEnv *env, jobject) {
     LOGI("GetBuffer");
+    if (GetBuffer == NULL) return;
     jbyteArray obj = NULL;
     int size = 0;
     uint8_t *database = (uint8_t *)GetBuffer(&size);
@@ -265,6 +306,9 @@ static const JNINativeMethod sMethods[] = {
     {"RawCam_SetLed", "(II)I", (void*) RawCam_SetLed},
     {"RawCam_GetBuffer", "()V", (void*) RawCam_GetBuffer},
     {"RawCam_RegisterFrameCallback", "()I", (void*) RawCam_RegisterFrameCallback},
+    {"RawCam_SetFps", "(F)I", (void*) RawCam_SetFps},
+    {"RawCam_SetResolution", "(II)I", (void*) RawCam_SetResolution},
+    {"RawCam_SetFocus", "(I)I", (void*) RawCam_SetFocus},
 };
 
 static int registerNativeMethods(JNIEnv* env, const char* className,

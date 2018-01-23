@@ -26,18 +26,29 @@ android {
         }
 
         debug {
-
+            storeFile file("./signature/as_keystore.jks")
+            storePassword 'Aa123456'
+            keyAlias 'as_keys0'
+            keyPassword 'Aa123456'
         }
     }
 
     buildTypes {
         release {
+            buildConfigField 'boolean', 'IS_DEBUG', 'false'
+            debuggable false
             minifyEnabled false
+            zipAlignEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
         }
 
         debug {
+            buildConfigField 'boolean', 'IS_DEBUG', 'true'
+            debuggable true
+            minifyEnabled false
+            zipAlignEnabled true
+            shrinkResources false
             signingConfig signingConfigs.debug
         }
     }

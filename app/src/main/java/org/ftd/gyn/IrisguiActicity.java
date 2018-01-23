@@ -78,20 +78,23 @@ public class IrisguiActicity extends Activity
     private TextView mTvFormat;
     private TextView mTvResolution;
     private TextView mTvx;
+    private TextView mTvFoucs;
 
     private Button mSetFrameRate;
     private Button mSetFormat;
     private Spinner mFormats;
     private Spinner mInterfaceMode;
+    private Spinner mFocusMode;
     private Button mSetResolution;
     private Button mDumpRaw;
     private ImageView mImageContent;
     private Button mGetBuffer;
+    private Button mSetFocus;
 
     private SurfaceTexture mSurfaceTexture;
     private TextureView mTextureView;
 
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = BuildConfig.IS_DEBUG;
 
     private Camera mCamera;
     private Camera.CameraInfo mCameraInfo;
@@ -107,6 +110,7 @@ public class IrisguiActicity extends Activity
     private int mLed1Level                    = 128;
     private int mLed2Level                    = 128;
     private int mCurrentFormatValue           = 0;//0x11: yuv420sp, 0x99: raw
+    private int mCurrentFoucsMode             = 0;
 
     private Matrix mMatrix                    = null;
     private float mAspectRatio                = 4f / 3f;
@@ -149,6 +153,10 @@ public class IrisguiActicity extends Activity
         System.loadLibrary("native-lib");
     }
 
+    enum focus_mode_type {
+        FOCUS_MODE_AUTO
+    }
+
     /**
      * A native method that is implemented by the 'native-lib' native library,
      * which is packaged with this application.
@@ -165,6 +173,9 @@ public class IrisguiActicity extends Activity
     public native int RawCam_SetLed(int led1, int led2);
     public native void RawCam_GetBuffer();
     public native int RawCam_RegisterFrameCallback();
+    public native int RawCam_SetFps(float fixedFps);
+    public native int RawCam_SetResolution(int width, int height);
+    public native int RawCam_SetFocus(int mode);
 
     // ------------------------------------------------------
     public IrisguiActicity() {
@@ -184,6 +195,10 @@ public class IrisguiActicity extends Activity
             Toast.makeText(this, resId, Toast.LENGTH_SHORT).show();
         }
         return isEmpty;
+    }
+
+    private void prompt_user(int resId) {
+        Toast.makeText(this, resId, Toast.LENGTH_SHORT).show();
     }
 
     @Override
@@ -234,7 +249,8 @@ public class IrisguiActicity extends Activity
                     | IllegalAccessException e) {
                 e.printStackTrace();
             }
-            Log.i(TAG, "camera has been destroyed");
+            if (DEBUG)
+                Log.i(TAG, "camera has been destroyed");
         }
     }
 
@@ -299,22 +315,39 @@ public class IrisguiActicity extends Activity
             mGetBuffer.setVisibility(View.GONE);
             tvBuffer.setVisibility(View.GONE);
             //mDumpRaw.setVisibility(View.VISIBLE);
+
+            mTvFoucs.setVisibility(View.GONE);
+            mFocusMode.setVisibility(View.GONE);
+            mSetFocus.setVisibility(View.GONE);
         } else {
-            mTvFrameRate.setVisibility(View.GONE);
+            //FrameRate
+            mTvFrameRate.setVisibility(View.VISIBLE);
+            mEditFrameRate.setVisibility(View.VISIBLE);
+            mSetFrameRate.setVisibility(View.VISIBLE);
+
+            //Format
             mTvFormat.setVisibility(View.GONE);
-            mTvResolution.setVisibility(View.GONE);
-            mTvx.setVisibility(View.GONE);
-            mEditOpen.setVisibility(View.GONE);
-            mEditFrameRate.setVisibility(View.GONE);
-            mEditFrameWidth.setVisibility(View.GONE);
-            mEditFrameHeight.setVisibility(View.GONE);
-            mSetFrameRate.setVisibility(View.GONE);
-            mSetFormat.setVisibility(View.GONE);
             mFormats.setVisibility(View.GONE);
+            mSetFormat.setVisibility(View.GONE);
+
+            mEditOpen.setVisibility(View.GONE);
+
+            tvBuffer.setVisibility(View.GONE);
+            mGetBuffer.setVisibility(View.GONE);
+
+            mDumpRaw.setVisibility(View.VISIBLE);
+
+            //Resolution
+            mTvResolution.setVisibility(View.GONE);
+            mEditFrameWidth.setVisibility(View.GONE);
+            mTvx.setVisibility(View.GONE);
+            mEditFrameHeight.setVisibility(View.GONE);
             mSetResolution.setVisibility(View.GONE);
-            mGetBuffer.setVisibility(View.VISIBLE);
-            tvBuffer.setVisibility(View.VISIBLE);
-            //mDumpRaw.setVisibility(View.GONE);
+
+            //Foucs
+            mTvFoucs.setVisibility(View.VISIBLE);
+            mFocusMode.setVisibility(View.VISIBLE);
+            mSetFocus.setVisibility(View.VISIBLE);
         }
     }
 
@@ -328,6 +361,7 @@ public class IrisguiActicity extends Activity
         mTvFormat = (TextView) findViewById(R.id.tvFormat);
         mTvResolution = (TextView) findViewById(R.id.tvResolution);
         mTvx = (TextView) findViewById(R.id.x);
+        mTvFoucs = (TextView) findViewById(R.id.tvFoucs);
 
         // Hook up button presses to the appropriate event handler.
         mEditOpen = (EditText) findViewById(R.id.editOpen);
@@ -368,6 +402,9 @@ public class IrisguiActicity extends Activity
         ((Button) findViewById(R.id.setInterface)).setOnClickListener(mSetInterfaceListener);
 
         (mGetBuffer = (Button) findViewById(R.id.getBuffer)).setOnClickListener(mGetBufferListener);
+
+        (mFocusMode = (Spinner) findViewById(R.id.focusMode)).setOnItemSelectedListener(mFoucsModeChangeListener);
+        (mSetFocus = (Button) findViewById(R.id.setFocus)).setOnClickListener(mSetFoucsListener);
 
         mTextureView = (TextureView) findViewById(R.id.preview_content);
         mTextureView.setSurfaceTextureListener(this);
@@ -575,9 +612,18 @@ public class IrisguiActicity extends Activity
     // callback for SET FRAME RATE button press
     private OnClickListener mSetFrameRateListener = new OnClickListener() {
         public void onClick(View v) {
-            if (checkNull(true)) return;
-            int frameRate = Integer.parseInt(mEditFrameRate.getText().toString());
-            doSetFrameRate(frameRate);
+            float frameRate = Float.parseFloat(mEditFrameRate.getText().toString());
+            if (DEBUG) Log.d(TAG, "frameRate:" + frameRate);
+            if (USE_JAVA_API) {
+                if (checkNull(true)) return;
+                doSetFrameRate((int)frameRate);
+            } else {
+                int ret = RawCam_SetFps(frameRate);
+                if (ret == 0)
+                    prompt_user(R.string.prompt_suc);
+                else
+                    prompt_user(R.string.prompt_fail);
+            }
         }
     };
 
@@ -607,11 +653,40 @@ public class IrisguiActicity extends Activity
             } else if (i == 1){
                 USE_JAVA_API = false;
             }
+            if (DEBUG) Log.d(TAG, "user interface:" + USE_JAVA_API);
         }
 
         @Override
         public void onNothingSelected(AdapterView<?> adapterView) {
             // Another interface callback
+        }
+    };
+
+    // ------------------------------------------------------
+    // callback for foucs Spinner change
+    private OnItemSelectedListener mFoucsModeChangeListener = new OnItemSelectedListener() {
+
+        @Override
+        public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
+            mCurrentFoucsMode = i;
+        }
+
+        @Override
+        public void onNothingSelected(AdapterView<?> adapterView) {
+            // Another interface callback
+        }
+    };
+
+    // ------------------------------------------------------
+    // callback for SET FOUCS button press
+    private OnClickListener mSetFoucsListener = new OnClickListener() {
+        public void onClick(View v) {
+            if (DEBUG) Log.d(TAG, "mCurrentFoucsMode:" + mCurrentFoucsMode);
+            int ret = RawCam_SetFocus(mCurrentFoucsMode);
+            if (ret == 0)
+                prompt_user(R.string.prompt_suc);
+            else
+                prompt_user(R.string.prompt_fail);
         }
     };
 
@@ -749,10 +824,19 @@ public class IrisguiActicity extends Activity
     // callback for SET RESOLUTION button press
     private OnClickListener mSetResolutionListener = new OnClickListener() {
         public void onClick(View v) {
-            if (checkNull(true)) return;
             int width = Integer.parseInt(mEditFrameWidth.getText().toString());
             int height = Integer.parseInt(mEditFrameHeight.getText().toString());
-            doSetResolution(width, height);
+            if (DEBUG) Log.d(TAG, "Resolution, width=" + width + ", height=" + height);
+            if (USE_JAVA_API) {
+                if (checkNull(true)) return;
+                doSetResolution(width, height);
+            } else {
+                int ret = RawCam_SetResolution(width, height);
+                if (ret == 0)
+                    prompt_user(R.string.prompt_suc);
+                else
+                    prompt_user(R.string.prompt_fail);
+            }
         }
     };
 
@@ -879,12 +963,15 @@ public class IrisguiActicity extends Activity
                 Toast.makeText(this, one_frame_data != null ? R.string.dumpOneOK:R.string.dumpOK, Toast.LENGTH_SHORT).show();
                 one_frame_data = null;
             } catch (Throwable thrw) {
-                Log.i(TAG, "Create '" + filFSpec.getAbsolutePath() + "' failed");
-                Log.i(TAG, "Error=" + thrw.getMessage());
+                if (DEBUG) {
+                    Log.i(TAG, "Create '" + filFSpec.getAbsolutePath() + "' failed");
+                    Log.i(TAG, "Error=" + thrw.getMessage());
+                }
                 Toast.makeText(this, R.string.dumpFailed, Toast.LENGTH_SHORT).show();
             }
         } else {
-            Log.i(TAG, "data empty");
+            if (DEBUG)
+                Log.i(TAG, "data empty");
             Toast.makeText(this, R.string.data_empty, Toast.LENGTH_SHORT).show();
         }
     }
@@ -895,7 +982,6 @@ public class IrisguiActicity extends Activity
         //RawCam_SetFrameRate
         //fot test camera @hide api
         try {
-            Log.d(TAG, "frameRate:" + frameRate);
             setFrameRateMethod.invoke(mParams, frameRate);
             mCamera.setParameters(mParams);
         } catch (IllegalArgumentException
@@ -914,12 +1000,12 @@ public class IrisguiActicity extends Activity
             mCamera = Camera.open(mCurrentCameraId);
             if (mCamera == null) {
                 dspErr("open failed");
-                Log.e(TAG, "open failed!!!");
+                if (DEBUG) Log.e(TAG, "open failed!!!");
                 return;
             }
 
             dspStat("camera opened");
-            Log.d(TAG, "open camera successfully!!!");
+            if (DEBUG) Log.d(TAG, "open camera successfully!!!");
             //init camera api method
             initMethod();
 
@@ -930,7 +1016,7 @@ public class IrisguiActicity extends Activity
             //resizeForPreviewAspectRatio(mParams);
         } catch (Exception e) {
             dspErr("open camera exception:" + e);
-            Log.e(TAG, "open camera exception:" + e);
+            if (DEBUG) Log.e(TAG, "open camera exception:" + e);
         }
 
     }
@@ -940,7 +1026,7 @@ public class IrisguiActicity extends Activity
     private void doClose() {
         //RawCam_Close
         //fot test camera @hide api
-        Log.d(TAG, "close iris");
+        if (DEBUG) Log.d(TAG, "close iris");
         try {
             closeMethod.invoke(mCamera);
             mCamera = null;
@@ -961,7 +1047,7 @@ public class IrisguiActicity extends Activity
         //RawCam_SetFormat
         //fot test camera @hide api
         try {
-            Log.d(TAG, "format:" + format);
+            if (DEBUG) Log.d(TAG, "format:" + format);
             setFormatMethod.invoke(mParams, format);
             mCamera.setParameters(mParams);
         } catch (IllegalArgumentException
@@ -974,7 +1060,7 @@ public class IrisguiActicity extends Activity
     // ----------------------------------------
     // start stream
     public void doStartRawStream() {
-        Log.d(TAG, "start raw stream");
+        if (DEBUG) Log.d(TAG, "start raw stream");
         mDataCallback = this;
         RawCam_RegisterFrameCallback();
         int ret = RawCam_StartStream();
@@ -986,7 +1072,7 @@ public class IrisguiActicity extends Activity
     // ----------------------------------------
     // start stream
     public void doStartStream() {
-        Log.d(TAG, "doStartStream");
+        if (DEBUG) Log.d(TAG, "doStartStream");
 
         setDisplayOrientation();
         Camera.Size optimalSize = null;
@@ -1029,7 +1115,8 @@ public class IrisguiActicity extends Activity
 
         //set preview size
         //mParams.setPreviewSize(optimalSize.width, optimalSize.height);
-        Log.d(TAG, "optimalSize.width:" + optimalSize.width + ", optimalSize.height:" + optimalSize.height);
+        if (DEBUG)
+            Log.d(TAG, "optimalSize.width:" + optimalSize.width + ", optimalSize.height:" + optimalSize.height);
 
         //set 50hz
         mParams.setAntibanding("50hz");
@@ -1086,7 +1173,7 @@ public class IrisguiActicity extends Activity
         //RawCam_SetLed
         //fot test camera @hide api
         try {
-            Log.d(TAG, "led1:" + level1 + ", led2:" + level2);
+            if (DEBUG) Log.d(TAG, "led1:" + level1 + ", led2:" + level2);
             setLedMethod.invoke(mParams, level1, level2);
             mCamera.setParameters(mParams);
         } catch (IllegalArgumentException
@@ -1102,7 +1189,7 @@ public class IrisguiActicity extends Activity
         //RawCam_SetResolution
         //fot test camera @hide api
         try {
-            Log.d(TAG, "width:" + width + ", height:" + height);
+            if (DEBUG) Log.d(TAG, "width:" + width + ", height:" + height);
             setResolutionMethod.invoke(mParams, width, height);
             mCamera.setParameters(mParams);
         } catch (IllegalArgumentException
@@ -1234,7 +1321,8 @@ public class IrisguiActicity extends Activity
                     }
                     return;
                 default:
-                    Log.e(TAG, "Unknown message type " + msg.what);
+                    if (DEBUG)
+                        Log.e(TAG, "Unknown message type " + msg.what);
                     return;
             }
         }

@@ -13,14 +13,17 @@
     <string name="height">height</string>
     <string name="x">X</string>
 
+    <string name="camId">Camera Id</string>
     <string name="open">open</string>
     <string name="frameRate">Frame Rate</string>
+    <string name="frameRateRange">7.5 ~ 30</string>
     <string name="setFrameRate">set Frame Rate</string>
     <string name="format">Format</string>
     <string name="setFormat">set Format</string>
 
     <string name="resolution">Resolution</string>
     <string name="setResolution">set Resolution</string>
+    <string name="stream">Stream</string>
     <string name="startStream">start Stream</string>
     <string name="stopStream">stop Stream</string>
 
@@ -32,6 +35,7 @@
     <string name="writeRegister">write Register</string>
 
     <string name="setFocus">set Focus</string>
+    <string name="focus">Focus</string>
     <string name="dump">dump raw to file</string>
     <string name="data_empty">data empty</string>
     <string name="dumpOK">dump raw successfully!!!</string>
@@ -51,4 +55,10 @@
     <string name="j_interface">java interface</string>
     <string name="c_interface">c interface</string>
     <string name="setInterface">set interface</string>
+
+    <string name="prompt_suc">Okay</string>
+    <string name="prompt_fail">Failed</string>
+
+    <string name="foucs_auto">Auto</string>
+    <string name="foucs_manual">Manual</string>
 </resources>

@@ -8,4 +8,8 @@
         <item>@string/j_interface</item>
         <item>@string/c_interface</item>
     </string-array>
+    <string-array name="focusMode">
+        <item>@string/foucs_auto</item>
+        <item>@string/foucs_manual</item>
+    </string-array>
 </resources>
