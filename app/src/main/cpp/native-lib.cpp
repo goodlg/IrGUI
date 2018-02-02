@@ -10,9 +10,8 @@
 #define UNUSED(x) (void)(x)
 #define NELEM(x) ((int) (sizeof(x) / sizeof((x)[0])))
 
-#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 #define IRIS_LIB_PATH "/system/lib/libraw_interface.so"
 
@@ -21,8 +20,6 @@ enum{
     IRIS_MSG_ONE_RAW_FRAME = 0x002,
     IRIS_MSG_ALL_MSGS = 0xFFFF
 } ;
-
-static void *s_handle = NULL;
 
 typedef int (*CAC_FUNC)();
 typedef int (*CAC_FUNC1)(int);
@@ -53,12 +50,14 @@ CAC_FUNC1 SetFormat = NULL;
 
 jint gCurrentWidth = 1944, gCurrentHeight = 1944;
 
+static void *s_handle = NULL;
 static JavaVM *m_JVM = NULL;
 jclass gIrisClass = NULL;
 jobject gIrisJObjectWeak = NULL;
 jmethodID gPostEvent = NULL;
 jboolean gApiInited = JNI_FALSE;
 
+//CAM_FORMAT_BAYER_MIPI_RAW_10BPP_BGGR to alpha8
 static void raw10ToAlpha8(char* in, char* out, int width, int height) {
     int lineSize = (width /  4 * 5 - 1) / 4 * 4 + 4;
     char* inp = in;
@@ -67,15 +66,13 @@ static void raw10ToAlpha8(char* in, char* out, int width, int height) {
     int line;
     int pixelgroup;
 
-    for (line = 0; line < height; line++)
-    {
-        for (pixelgroup = 0; pixelgroup < width / 4; pixelgroup++)
-        {
+    for (line = 0; line < height; line++){
+        for (pixelgroup = 0; pixelgroup < width / 4; pixelgroup++) {
             *outp++ = -(*inp++);
             *outp++ = -(*inp++);
             *outp++ = -(*inp++);
             *outp++ = -(*inp++);
-            inp ++;
+            inp++;
         }
         inp += skip2line;
     }
