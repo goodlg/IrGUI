@@ -5,5 +5,5 @@ package org.ftd.gyn;
  */
 
 public interface DataCallback {
-    void onDataReceived(Object obj, int mode, byte[] data);
+    void onDataReceived(Object obj, int mode, byte[] rawData, byte[] alpha8Data);
 }

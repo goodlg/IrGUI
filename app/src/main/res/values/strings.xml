@@ -42,8 +42,10 @@
     <string name="dumpOneOK">dump one raw successfully!!!</string>
     <string name="dumpFailed">dump raw failed!!!</string>
 
-    <string name="led1">Led 1</string>
-    <string name="led2">Led 2</string>
+    <string name="led1">Iris Led 1</string>
+    <string name="led2">Iris Led 2</string>
+    <string name="led3">white Led 1</string>
+    <string name="led4">white Led 2</string>
     <string name="setLed">set Led</string>
 
     <string name="close">close</string>

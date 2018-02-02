@@ -32,32 +32,61 @@ typedef void (*PFN_FRAMEPOST_CB)(void *pFrameHeapBase, int frame_len);
 typedef int (*CAC_FUNC4)(PFN_FRAMEPOST_CB);
 typedef int (*CAC_FUNC5)(int *);
 typedef int (*CAC_FUNC6)(float);
+typedef int (*CAC_FUNC7)(int, int, int);
 
 static void dataCallback(void *dataPtr, int size);
 
 /* API */
-CAC_FUNC Open = NULL;
+CAC_FUNC1 Open = NULL;
 CAC_FUNC Close = NULL;
 CAC_FUNC StartStream = NULL;
 CAC_FUNC StopStream = NULL;
 CAC_FUNC2 ReadRegister = NULL;
 CAC_FUNC3 WriteRegister = NULL;
-CAC_FUNC3 SetLed = NULL;
+CAC_FUNC7 SetLed = NULL;
 CAC_FUNC5 GetBuffer = NULL;
 CAC_FUNC4 RegisterFrameCallback = NULL;
 CAC_FUNC6 SetFps = NULL;
 CAC_FUNC3 SetResolution = NULL;
 CAC_FUNC1 SetFocus = NULL;
+CAC_FUNC1 SetFormat = NULL;
+
+jint gCurrentWidth = 1944, gCurrentHeight = 1944;
 
 static JavaVM *m_JVM = NULL;
 jclass gIrisClass = NULL;
 jobject gIrisJObjectWeak = NULL;
 jmethodID gPostEvent = NULL;
+jboolean gApiInited = JNI_FALSE;
+
+static void raw10ToAlpha8(char* in, char* out, int width, int height) {
+    int lineSize = (width /  4 * 5 - 1) / 4 * 4 + 4;
+    char* inp = in;
+    char* outp = out;
+    int skip2line = lineSize - width /  4 * 5;
+    int line;
+    int pixelgroup;
+
+    for (line = 0; line < height; line++)
+    {
+        for (pixelgroup = 0; pixelgroup < width / 4; pixelgroup++)
+        {
+            *outp++ = -(*inp++);
+            *outp++ = -(*inp++);
+            *outp++ = -(*inp++);
+            *outp++ = -(*inp++);
+            inp ++;
+        }
+        inp += skip2line;
+    }
+}
 
 static void dataCallback(void *dataPtr, int size) {
-    jbyteArray obj = NULL;
-    JavaVMAttachArgs args = { JNI_VERSION_1_6, __FUNCTION__, NULL };
+    jbyteArray rawObj = NULL;
+    jbyteArray alpha8Obj = NULL;
+    uint8_t *out = NULL;
     JNIEnv* env = NULL;
+    JavaVMAttachArgs args = { JNI_VERSION_1_6, __FUNCTION__, NULL };
     m_JVM->AttachCurrentThread(&env, &args);
 
     // allocate Java byte array and copy data
@@ -66,14 +95,22 @@ static void dataCallback(void *dataPtr, int size) {
         LOGI("dataCallback, size=%d", size);
 
         if (dataBase != NULL) {
-            const jbyte *data = reinterpret_cast<const jbyte *>(dataBase);
-            obj = env->NewByteArray(size >= 0 ? size : 0 );
+            out = new uint8_t[size];
+            //get alpha8 data
+            raw10ToAlpha8((char *)dataBase, (char *)out, gCurrentWidth, gCurrentHeight);
 
-            if (obj == NULL) {
+            const jbyte *rawData = reinterpret_cast<const jbyte *>(dataBase);
+            rawObj = env->NewByteArray(size >= 0 ? size : 0 );
+
+            const jbyte *alpha8Data = reinterpret_cast<const jbyte *>(out);
+            alpha8Obj = env->NewByteArray(size >= 0 ? size : 0 );
+
+            if (rawObj == NULL || alpha8Obj == NULL) {
                 LOGE("Couldn't allocate byte array for raw data");
                 env->ExceptionClear();
             } else {
-                env->SetByteArrayRegion(obj, 0, size, data);
+                env->SetByteArrayRegion(rawObj, 0, size, rawData);
+                env->SetByteArrayRegion(alpha8Obj, 0, size, alpha8Data);
             }
         } else {
             LOGE("image heap is NULL");
@@ -82,12 +119,23 @@ static void dataCallback(void *dataPtr, int size) {
 
     // post data to Java
     env->CallStaticVoidMethod(gIrisClass, gPostEvent,
-            gIrisJObjectWeak, IRIS_MSG_CONTINUE_RAW_FRAME, 0, 0, obj);
-    if (obj) {
-        env->DeleteLocalRef(obj);
+            gIrisJObjectWeak, IRIS_MSG_CONTINUE_RAW_FRAME, 0, 0, rawObj, alpha8Obj);
+
+    if (rawObj) {
+        env->DeleteLocalRef(rawObj);
     }
+
+    if (alpha8Obj) {
+        env->DeleteLocalRef(alpha8Obj);
+    }
+
+    if (out) {
+        delete out;
+    }
+
     m_JVM->DetachCurrentThread();
 }
+
 static jint ApiInit(JNIEnv *, jobject) {
     char *error;
     LOGI("ApiInit");
@@ -173,7 +221,14 @@ static jint ApiInit(JNIEnv *, jobject) {
         return JNI_FALSE;
     }
 
+    *(void **) (&SetFormat) = dlsym(s_handle, "RawCam_SetFormat");
+    if ((error = dlerror()) != NULL)  {
+        LOGE("Failed to get RawCam_SetFormat handle in %s()! (Reason=%s)\n", __FUNCTION__, error);
+        //return JNI_FALSE;
+    }
+
     LOGI("INIT done");
+    gApiInited = JNI_TRUE;
     return JNI_TRUE;
 }
 
@@ -187,7 +242,7 @@ static jint ApiDeinit(JNIEnv *, jobject) {
 
 static jint RawCam_Open(JNIEnv *env, jobject thiz, jobject weak_ir, jint camId) {
     LOGI("RawCamOpen (id %d)", camId);
-
+    int ret = -1, rc = 0;
     jclass clazz = env->GetObjectClass(thiz);
     if (clazz == NULL) {
         // This should never happen
@@ -197,7 +252,18 @@ static jint RawCam_Open(JNIEnv *env, jobject thiz, jobject weak_ir, jint camId) 
     gIrisJObjectWeak = env->NewGlobalRef(weak_ir);
     gIrisClass = (jclass)env->NewGlobalRef(clazz);
 
-    return Open();
+    ret = Open(camId);
+
+    // set register for preview
+    if ((rc = WriteRegister(0x3500, 0x00)) != 0
+        && (rc = WriteRegister(0x3501, 0x40)) != 0
+        && (rc = WriteRegister(0x3502, 0x00)) != 0
+        && (rc = WriteRegister(0x3508, 0x00)) != 0
+        && (rc = WriteRegister(0x3509, 0x80)) != 0) {
+        LOGE("set register failed for preview");
+    }
+
+    return ret;
 }
 
 static jint RawCam_Close(JNIEnv *env, jobject) {
@@ -237,9 +303,9 @@ static jint RawCam_WriteRegister(JNIEnv *, jobject, jint addr, jint value) {
     return WriteRegister(addr, value);
 }
 
-static jint RawCam_SetLed(JNIEnv *, jobject, jint led1, jint led2) {
-    LOGI("RawCamSetLed, led1=%d, led2=%d", led1, led2);
-    return SetLed(led1, led2);
+static jint RawCam_SetLed(JNIEnv *, jobject, jint led1, jint led2, jint ledType) {
+    LOGI("RawCamSetLed, led1=%d, led2=%d, ledType=%d", led1, led2, ledType);
+    return SetLed(led1, led2, ledType);
 }
 
 static jint RawCam_SetFps(JNIEnv *, jobject, jfloat fps) {
@@ -249,7 +315,9 @@ static jint RawCam_SetFps(JNIEnv *, jobject, jfloat fps) {
 }
 
 static jint RawCam_SetResolution(JNIEnv *, jobject, jint width, jint height) {
-    LOGI("SetResolution, width=%d, height=%d", width, height);
+    gCurrentWidth = width;
+    gCurrentHeight = height;
+    LOGI("SetResolution, width=%d, height=%d", gCurrentWidth, gCurrentHeight);
     if (SetResolution == NULL) return -1;
     return SetResolution(width, height);
 }
@@ -257,6 +325,12 @@ static jint RawCam_SetResolution(JNIEnv *, jobject, jint width, jint height) {
 static jint RawCam_SetFocus(JNIEnv *, jobject, jint mode) {
     LOGI("SetFocus, focus mode=%d", mode);
     return SetFocus(mode);
+}
+
+static jint RawCam_SetFormat(JNIEnv *, jobject, jint format) {
+    LOGI("SetFormat, format=%d", format);
+    if (SetFormat == NULL) return -1;
+    return SetFormat(format);
 }
 
 static void RawCam_GetBuffer(JNIEnv *env, jobject) {
@@ -303,12 +377,13 @@ static const JNINativeMethod sMethods[] = {
     {"RawCam_StopStream", "()I", (void*) RawCam_StopStream},
     {"RawCam_ReadRegister", "(I)I", (void*) RawCam_ReadRegister},
     {"RawCam_WriteRegister", "(II)I", (void*) RawCam_WriteRegister},
-    {"RawCam_SetLed", "(II)I", (void*) RawCam_SetLed},
+    {"RawCam_SetLed", "(III)I", (void*) RawCam_SetLed},
     {"RawCam_GetBuffer", "()V", (void*) RawCam_GetBuffer},
     {"RawCam_RegisterFrameCallback", "()I", (void*) RawCam_RegisterFrameCallback},
     {"RawCam_SetFps", "(F)I", (void*) RawCam_SetFps},
     {"RawCam_SetResolution", "(II)I", (void*) RawCam_SetResolution},
     {"RawCam_SetFocus", "(I)I", (void*) RawCam_SetFocus},
+    {"RawCam_SetFormat", "(I)I", (void*) RawCam_SetFormat},
 };
 
 static int registerNativeMethods(JNIEnv* env, const char* className,
@@ -318,7 +393,7 @@ static int registerNativeMethods(JNIEnv* env, const char* className,
         return JNI_FALSE;
     }
     gPostEvent = env->GetStaticMethodID(clazz, "postRawDataEvent",
-                                           "(Ljava/lang/Object;IIILjava/lang/Object;)V");
+                                           "(Ljava/lang/Object;IIILjava/lang/Object;Ljava/lang/Object;)V");
     if (env->RegisterNatives(clazz, gMethods, numMethods) < 0) {
         return JNI_FALSE;
     }

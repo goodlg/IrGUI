@@ -18,6 +18,7 @@ import android.os.Message;
 import android.os.SystemClock;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
+import android.util.ArrayMap;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
@@ -41,10 +42,12 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.sql.BatchUpdateException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by sdduser on 17-12-15.
@@ -100,6 +103,8 @@ public class IrisguiActicity extends Activity
     private Camera.CameraInfo mCameraInfo;
     private Camera.Parameters mParams;
 
+    private boolean mOpened = false;
+
     protected int mDefaultCameraId            = 2;//0: BACK, 1: FRONT, 2: IRIS
     private int mCurrentCameraId              = mDefaultCameraId;
 
@@ -114,6 +119,15 @@ public class IrisguiActicity extends Activity
 
     private Matrix mMatrix                    = null;
     private float mAspectRatio                = 4f / 3f;
+    private int mDefaultWith                  = 1944;
+    private int mDefaultHeight                = 1944;
+
+    private int mCurrentWith                  = mDefaultWith;
+    private int mCurrentHeight                = mDefaultHeight;
+
+    private float mDefaultframeRate           = 30.0f;
+    private float mCurrentframeRate           = mDefaultframeRate;
+
     private boolean mOrientationResize;
     private boolean mPrevOrientationResize;
     private boolean mAspectRatioResize;
@@ -121,6 +135,7 @@ public class IrisguiActicity extends Activity
     private static final String ADDRESS_PREFIX = "0x";
 
     private byte[] data;
+    private byte[] alpha8Data;
     private byte[] one_frame_data;
 
     //fot test camera @hide api
@@ -170,12 +185,13 @@ public class IrisguiActicity extends Activity
     public native int RawCam_StopStream();
     public native int RawCam_ReadRegister(int addr);
     public native int RawCam_WriteRegister(int addr, int value);
-    public native int RawCam_SetLed(int led1, int led2);
+    public native int RawCam_SetLed(int led1, int led2, int ledType);
     public native void RawCam_GetBuffer();
     public native int RawCam_RegisterFrameCallback();
     public native int RawCam_SetFps(float fixedFps);
     public native int RawCam_SetResolution(int width, int height);
     public native int RawCam_SetFocus(int mode);
+    public native int RawCam_SetFormat(int format);
 
     // ------------------------------------------------------
     public IrisguiActicity() {
@@ -230,36 +246,51 @@ public class IrisguiActicity extends Activity
     protected void onDestroy() {
         super.onDestroy();
 
-        ApiDeinit();
+        if (USE_JAVA_API) {
+            if (!checkNull(false)) {
+                mCamera.setPreviewCallback(null);
 
-        if (!checkNull(false)) {
-            mCamera.setPreviewCallback(null);
-
-            boolean previewEnabled;
-            try {
-                Method previewEnabledMethod = mCamera.getClass().getMethod("previewEnabled");
-                previewEnabled = (boolean) previewEnabledMethod.invoke(mCamera);
-                if (previewEnabled) {
-                    doStopStream();
-                    doClose();
+                boolean previewEnabled;
+                try {
+                    Method previewEnabledMethod = mCamera.getClass().getMethod("previewEnabled");
+                    previewEnabled = (boolean) previewEnabledMethod.invoke(mCamera);
+                    if (previewEnabled) {
+                        doStopStream();
+                        doClose();
+                    }
+                } catch (NoSuchMethodException
+                        | IllegalArgumentException
+                        | InvocationTargetException
+                        | IllegalAccessException e) {
+                    e.printStackTrace();
                 }
-            } catch (NoSuchMethodException
-                    | IllegalArgumentException
-                    | InvocationTargetException
-                    | IllegalAccessException e) {
-                e.printStackTrace();
+                if (DEBUG)
+                    Log.i(TAG, "camera has been destroyed");
             }
-            if (DEBUG)
-                Log.i(TAG, "camera has been destroyed");
+        } else {
+            if (mOpened) {
+                RawCam_StopStream();
+                RawCam_Close();
+            }
         }
+
+        ApiDeinit();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (!checkNull(false)) {
-            doStopStream();
-            doClose();
+
+        if (USE_JAVA_API) {
+            if (!checkNull(false)) {
+                doStopStream();
+                doClose();
+            }
+        } else {
+            if (mOpened) {
+                RawCam_StopStream();
+                RawCam_Close();
+            }
         }
     }
 
@@ -326,16 +357,17 @@ public class IrisguiActicity extends Activity
             mSetFrameRate.setVisibility(View.VISIBLE);
 
             //Format
-            mTvFormat.setVisibility(View.GONE);
-            mFormats.setVisibility(View.GONE);
-            mSetFormat.setVisibility(View.GONE);
+            //mTvFormat.setVisibility(View.GONE);
+            //mFormats.setVisibility(View.GONE);
+            //mSetFormat.setVisibility(View.GONE);
 
-            mEditOpen.setVisibility(View.GONE);
+            //open
+            //mEditOpen.setVisibility(View.GONE);
 
             tvBuffer.setVisibility(View.GONE);
             mGetBuffer.setVisibility(View.GONE);
 
-            mDumpRaw.setVisibility(View.VISIBLE);
+            //mDumpRaw.setVisibility(View.GONE);
 
             //Resolution
             mTvResolution.setVisibility(View.GONE);
@@ -389,6 +421,8 @@ public class IrisguiActicity extends Activity
         ((Button) findViewById(R.id.stopStream)).setOnClickListener(mStopStreamListener);
         ((SeekBar) findViewById(R.id.setLed1)).setOnSeekBarChangeListener(mSetLedListener);
         ((SeekBar) findViewById(R.id.setLed2)).setOnSeekBarChangeListener(mSetLedListener);
+        ((SeekBar) findViewById(R.id.setLed3)).setOnSeekBarChangeListener(mSetLedListener);
+        ((SeekBar) findViewById(R.id.setLed4)).setOnSeekBarChangeListener(mSetLedListener);
         (mSetResolution = (Button) findViewById(R.id.setResolution)).setOnClickListener(mSetResolutionListener);
         (mDumpRaw = (Button) findViewById(R.id.dumpToFile)).setOnClickListener(mDumpRawListener);
         ((Button) findViewById(R.id.readRegister)).setOnClickListener(mRegisterListener);
@@ -612,13 +646,18 @@ public class IrisguiActicity extends Activity
     // callback for SET FRAME RATE button press
     private OnClickListener mSetFrameRateListener = new OnClickListener() {
         public void onClick(View v) {
-            float frameRate = Float.parseFloat(mEditFrameRate.getText().toString());
-            if (DEBUG) Log.d(TAG, "frameRate:" + frameRate);
+            try {
+                mCurrentframeRate = Float.parseFloat(mEditFrameRate.getText().toString());
+            } catch (NumberFormatException | NullPointerException e) {
+                e.printStackTrace();
+                Log.e(TAG, "frame rate is empty, use default.");
+            }
+            if (DEBUG) Log.d(TAG, "frameRate:" + mCurrentframeRate);
             if (USE_JAVA_API) {
                 if (checkNull(true)) return;
-                doSetFrameRate((int)frameRate);
+                doSetFrameRate((int)mCurrentframeRate);
             } else {
-                int ret = RawCam_SetFps(frameRate);
+                int ret = RawCam_SetFps(mCurrentframeRate);
                 if (ret == 0)
                     prompt_user(R.string.prompt_suc);
                 else
@@ -707,8 +746,10 @@ public class IrisguiActicity extends Activity
             } else {
                 int ret = RawCam_Open(new WeakReference<IrisguiActicity>(IrisguiActicity.this),
                         mCurrentCameraId);
-                if (ret == 0)
+                if (ret == 0) {
+                    mOpened = true;
                     dspStat("camera opened");
+                }
                 else
                     dspStat("open camera failed");
 
@@ -725,8 +766,12 @@ public class IrisguiActicity extends Activity
                 doClose();
             } else {
                 int ret = RawCam_Close();
-                if (ret == 0)
+                if (ret == 0) {
+                    mOpened = false;
                     dspStat("camera closed");
+                    dspData("data empty");
+                    dspBuffer("buffer empty");
+                }
                 else
                     dspStat("close camera failed");
             }
@@ -737,8 +782,17 @@ public class IrisguiActicity extends Activity
     // callback for SET FORMAT button press
     private OnClickListener mSetFormatListener = new OnClickListener() {
         public void onClick(View v) {
-            if (checkNull(true)) return;
-            doSetFormat(mCurrentFormatValue);
+            if (USE_JAVA_API) {
+                if (checkNull(true)) return;
+                doSetFormat(mCurrentFormatValue);
+            } else {
+                Log.d(TAG, "mCurrentFormatValue:" + mCurrentFormatValue);
+                int ret = RawCam_SetFormat(mCurrentFormatValue);
+                if (ret == 0)
+                    prompt_user(R.string.prompt_suc);
+                else
+                    prompt_user(R.string.prompt_fail);
+            }
         }
     };
 
@@ -796,16 +850,26 @@ public class IrisguiActicity extends Activity
     private OnSeekBarChangeListener mSetLedListener = new OnSeekBarChangeListener() {
         @Override
         public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            int ledType = 0;
             if (seekBar.getId() == R.id.setLed1) {
                 mLed1Level = progress;
+                ledType = 0;
             } else if (seekBar.getId() == R.id.setLed2) {
+                ledType = 0;
+                mLed2Level = progress;
+            } else if (seekBar.getId() == R.id.setLed3) {
+                ledType = 1;
+                mLed1Level = progress;
+            } else if (seekBar.getId() == R.id.setLed4) {
+                ledType = 1;
                 mLed2Level = progress;
             }
+
             if (USE_JAVA_API) {
                 if (checkNull(true)) return;
                 doSetLed(mLed1Level, mLed2Level);
             } else {
-                RawCam_SetLed(mLed1Level, mLed2Level);
+                RawCam_SetLed(mLed1Level, mLed2Level, ledType);
             }
         }
 
@@ -824,14 +888,19 @@ public class IrisguiActicity extends Activity
     // callback for SET RESOLUTION button press
     private OnClickListener mSetResolutionListener = new OnClickListener() {
         public void onClick(View v) {
-            int width = Integer.parseInt(mEditFrameWidth.getText().toString());
-            int height = Integer.parseInt(mEditFrameHeight.getText().toString());
-            if (DEBUG) Log.d(TAG, "Resolution, width=" + width + ", height=" + height);
+            try {
+                mCurrentWith = Integer.parseInt(mEditFrameWidth.getText().toString());
+                mCurrentHeight = Integer.parseInt(mEditFrameHeight.getText().toString());
+            } catch (NumberFormatException e) {
+                e.printStackTrace();
+                Log.e(TAG, "Resolution width and height is empty, use default.");
+            }
+            if (DEBUG) Log.d(TAG, "Resolution, width=" + mCurrentWith + ", height=" + mCurrentHeight);
             if (USE_JAVA_API) {
                 if (checkNull(true)) return;
-                doSetResolution(width, height);
+                doSetResolution(mCurrentWith, mCurrentHeight);
             } else {
-                int ret = RawCam_SetResolution(width, height);
+                int ret = RawCam_SetResolution(mCurrentWith, mCurrentHeight);
                 if (ret == 0)
                     prompt_user(R.string.prompt_suc);
                 else
@@ -893,7 +962,11 @@ public class IrisguiActicity extends Activity
                     String tmpStr = "0x" + Integer.toHexString(value1);
                     mEditRegisterValue.setText(tmpStr);
                 } else if (v.getId() == R.id.writeRegister) {
-                    RawCam_WriteRegister(mAddr, mValue);
+                    int ret = RawCam_WriteRegister(mAddr, mValue);
+                    if (ret == 0)
+                        prompt_user(R.string.prompt_suc);
+                    else
+                        prompt_user(R.string.prompt_fail);
                 }
             }
         }
@@ -1014,6 +1087,7 @@ public class IrisguiActicity extends Activity
 
             //dumpMethod.invoke(mParams);
             //resizeForPreviewAspectRatio(mParams);
+            mOpened = true;
         } catch (Exception e) {
             dspErr("open camera exception:" + e);
             if (DEBUG) Log.e(TAG, "open camera exception:" + e);
@@ -1031,6 +1105,7 @@ public class IrisguiActicity extends Activity
             closeMethod.invoke(mCamera);
             mCamera = null;
             mParams = null;
+            mOpened = false;
             dspStat("camera closed");
             dspData("data empty");
             dspBuffer("buffer empty");
@@ -1209,14 +1284,6 @@ public class IrisguiActicity extends Activity
         }
 
         if (data != null) {
-//            Bitmap bmSnap = BitmapFactory.decodeByteArray(data, 0, data.length);
-//            if (bmSnap != null) {
-//                mTextureView.setVisibility(View.INVISIBLE);
-//                mImageContent.setImageBitmap(bmSnap);
-//            } else {
-//                mTextureView.setVisibility(View.VISIBLE);
-//                Log.d(TAG, "bmSnap is null");
-//            }
             dspData("data length:" + data.length);
         } else {
             dspData("data empty");
@@ -1278,14 +1345,27 @@ public class IrisguiActicity extends Activity
     }
 
     @Override
-    public void onDataReceived(Object obj, int mode, byte[] data) {
-        this.data = data;
+    public void onDataReceived(Object obj, int mode, byte[] raw, byte[] alpha8) {
+        this.data = raw;
+        this.alpha8Data = alpha8;
 
         if (data != null) {
             if (DEBUG)
                 Log.d(TAG, "data length:" + data.length);
             if (mode == 0) {//continue mode
                 dspData("data length:" + data.length);
+                Bitmap bm = Bitmap.createBitmap(mDefaultWith, mDefaultHeight, Bitmap.Config.ALPHA_8);
+                if (alpha8 != null && bm != null) {
+                    mTextureView.setVisibility(View.INVISIBLE);
+                    mImageContent.setVisibility(View.VISIBLE);
+                    ByteBuffer bb = ByteBuffer.wrap(alpha8);
+                    bm.copyPixelsFromBuffer(bb);
+                    mImageContent.setImageBitmap(bm);
+                } else {
+                    mImageContent.setVisibility(View.INVISIBLE);
+                    mTextureView.setVisibility(View.VISIBLE);
+                    Log.d(TAG, "bm is null");
+                }
             } else {//oneshot mode
                 this.one_frame_data = data;
                 dspBuffer("buffer length:" + data.length);
@@ -1311,13 +1391,15 @@ public class IrisguiActicity extends Activity
                 case IRIS_MSG_CONTINUE_RAW_FRAME:
                     DataCallback pContineCb = mDataCallback;
                     if (pContineCb != null) {
-                        pContineCb.onDataReceived(mIr, 0, (byte[])msg.obj);
+                        pContineCb.onDataReceived(mIr, 0, (byte[]) ((Map)msg.obj).get("raw"),
+                                (byte[]) ((Map)msg.obj).get("raw"));
                     }
                     return;
                 case IRIS_MSG_ONE_RAW_FRAME:
                     DataCallback pOneCb = mDataCallback;
                     if (pOneCb != null) {
-                        pOneCb.onDataReceived(mIr, 1, (byte[])msg.obj);
+                        pOneCb.onDataReceived(mIr, 1, (byte[]) ((Map)msg.obj).get("raw"),
+                                (byte[]) ((Map)msg.obj).get("raw"));
                     }
                     return;
                 default:
@@ -1329,14 +1411,17 @@ public class IrisguiActicity extends Activity
     }
 
     private static void postRawDataEvent(Object ref,
-                        int what, int arg1, int arg2, Object obj)
+                        int what, int arg1, int arg2, Object rawObj, Object alpha8Obj)
     {
         IrisguiActicity c = (IrisguiActicity)((WeakReference)ref).get();
         if (c == null)
             return;
 
         if (c.mEventHandler != null) {
-            Message m = c.mEventHandler.obtainMessage(what, arg1, arg2, obj);
+            Map<String,Object> data = new ArrayMap<>();
+            data.put("raw", rawObj);
+            data.put("alpha8", alpha8Obj);
+            Message m = c.mEventHandler.obtainMessage(what, arg1, arg2, data);
             c.mEventHandler.sendMessage(m);
         }
     }
